@@ -544,10 +544,203 @@ var GameController = Object.subClass({
         this.gCells[i][j].BAtack = 0;
       }
     }
-    for(var l=0; l < wTargetPices.length; l++) {
-      if(bTargetPices[l].live == 1) {
-        this.selectPiece(bTargetPices[l], bTargetPices[l])
+    for(var k=0; k < wTargetPices.length; k++) {
+      if(wTargetPices[k].live == 1) {
+        this.selectPiece(wTargetPices[k], wTargetPices[k].team, true);
       }
     }
+    for(var l=0; l < wTargetPices.length; l++) {
+      if(bTargetPices[l].live == 1) {
+        this.selectPiece(bTargetPices[l],bTargetPices[l].team, true);
+      }
+    }
+    this.gMoveAreaCells = new Array();
+    this.gSelectedPiece = {};
+    this.selected = false;
+  },
+  viewAtackArea: function(team, show) {
+    this.atackAreaRefresh();
+    var style = 'rgb(0, 191, 255)';
+    if(show == false) {
+      style = null;
+    } else if(team == 'B') {
+      style = 'rgb(114, 252, 0)';
+    }
+    for(var i=0; i < this.kBoardWidth; i++) {
+      for(var j=0; j < this.kBoardHeight; j++) {
+        if(eval("this.gCells[i][j]." + team + "Atack == 1")) {
+          this.fillBack(this.gCells[i][j], style);
+        }
+      }
+    }
+    this.drawPieces();
+  },
+  checkMateCheck: function(team) {
+    var ret = false;
+    var pieces = [];
+    var targetPiece;
+    if(team == "W") {
+      pieces = this.gPieces.white;
+    } else {
+      pieces = this.gPieces.black;
+    }
+    targetPiece = this.findKing(pieces);
+    if(team == 'W') {
+      if(this.gCells[targetPiece.column][targetPiece.row].BAtack == 1) {
+        ret = true;
+      }
+    } else {
+      if(this.gCells[targetPiece.column][targetPiece.row].WAtack == 1) {
+        ret = true;
+      }
+    }
+    return ret;
+  },
+  atackJudge: function(team, checkPiece) {
+    var ret = false;
+    if(this.checkMateCheck(this.turn)) {
+      var targetPieces = this.gPieces.white;
+      if(team == 'B') {
+        targetPieces = this.gPieces.black;
+      }
+      var king = this.findKing(targetPieces);
+
+      if(this.drawKArea(king, king.team, null)) {
+        //逃げれる
+        return true;
+      } else {
+        var escapeArea = this.findEscape(king, checkPiece);
+        var escapable = false;
+        for(var i=0; i < targetPieces.length; i++) {
+          this.gMoveAreaCells = new Array();
+          this.selectPiece(targetPieces[i], team, true);
+          for(var j=0; j < escapeArea.length; j++) {
+            for(var k=0; k < this.gMoveAreaCells.length; k++) {
+              if(escapeArea[j].column == this.gMoveAreaCells[k].column &&
+                escapeArea[j].row == this.gMoveAreaCells[k].row) {
+
+                  if(this.checkMateSimu(targetPieces[i], escapeArea[j].column, escapeArea[j].row) == false) {
+                    escapable =true;
+                    return true;
+                  }
+                }
+            }
+          }
+        }
+        if(escapable == false) {
+          this.turn = "S";
+          var data = {
+            team: this.myTeam,
+            pieces: this.gPieces
+          }
+          this.socketio.emit("win", data);
+        }
+      }
+    }
+    return ret;
+  },
+  findKing: function(targetPieces) {
+    var ret = null;
+    for(var i=0; i < targetPieces.length; i++) {
+      if(targetPieces[i].role == 'K') {
+        ret = targetPieces[i];
+      }
+    }
+    return ret;
+  },
+  findEscape: function(king, checkPiece) {
+    var ret = new Array();
+    ret.push(this.gCells[checkPiece.column][checkPiece.row]);
+    if(checkPiece.role == 'L' || checkPiece.role == 'B' || checkPiece.role == 'Q') {
+      var colAngel = '+';
+      var rowAngel = '+';
+      if(king.column < checkPiece.column) {
+        colAngel = '-';
+      } else if(king.column == checkPiece.column) {
+        colAngel = '+0*';
+      }
+      if(king.row < checkPiece.row) {
+        rowAngel = '-';
+      } else if(king.row == checkPiece.row) {
+        rowAngel = '+0*';
+      }
+
+      var i = 1;
+      while(true) {
+        if(colAngel != '+0*') {
+          if(eval("checkPiece.column" + colAngel + "i != king.column")) {
+            eval("ret.push(this.gCells[checkPiece.column" + colAngel + "i][checkPiece.row" + rowAngel + "i])");
+          } else {
+            break;
+          }
+        } else {
+          if(eval("checkPiece.row" + rowAngel + "i != king.row")) {
+            eval("ret.push(this.gCells[checkPiece.column" + colAngel + "i][checkPiece.row" + rowAngel + "i])");
+          } else {
+            break;
+          }
+        }
+        i++;
+      }
+    }
+    return ret;
+  },
+  checkMateSimu: function(movePiece, col, row) {
+    var ret = false;
+    var pieceColTemp = movePiece.column;
+    var pieceRowTemp = movePiece.row;
+
+    if(movePiece.live == 0) {
+      return ret;
+    }
+
+    var targetPiece = this.findPiece(col, row);
+    if(targetPiece === undefined || targetPiece === null) {
+
+    } else {
+      targetPiece.live = 0;
+    }
+    movePiece.column = col;
+    movePiece.row = row;
+    this.atackAreaRefresh();
+
+    if(this.checkMateCheck(movePiece.team)) {
+      ret = turn;
+    }
+    movePiece.row = pieceRowTemp;
+    movePiece.column = pieceColTemp;
+      if(targetPiece === undefined || targetPiece === null) {
+
+      } else {
+        targetPiece.live = 1;
+      }
+      return ret;
   }
-})
+});
+
+var Cell = Object.subClass({
+  column: 0,
+  row: 0,
+  style: 'rgb(150,150,150)',
+  WAtack: 0,
+  BAtack: 0,
+  init: function(column, row, style) {
+    this.column = column;
+    this.row = row;
+    this.style = style;
+  }
+});
+
+var Piece = Object.subClass({
+  column: 0,
+  row: 0,
+  role: '',
+  live: 1,
+  team: 0,
+  init: function(column, row, role, team) {
+    this.column = column;
+  this.row = row;
+    this.role = role;
+    this.team = team;
+  }
+});
